@@ -117,7 +117,7 @@ func (r *RegisterService) browserRegister(email, password string, headless bool)
 	// 自动查找浏览器路径 (优先 Edge)
 	if execPath := findBrowserPath(); execPath != "" {
 		opts = append(opts, chromedp.ExecPath(execPath))
-		log.Printf("%s 使用浏览器: %s", logPrefix, execPath)
+		log.Printf("[自动注册] 使用浏览器: %s", execPath)
 	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
