@@ -31,9 +31,10 @@ const (
 	ProviderDispostable
 	ProviderDropmail
 	ProviderMailnesia
+	ProviderChatGPT
 )
 
-var providerNames = []string{"mail.tm", "1secmail", "guerrillamail", "dispostable", "dropmail", "mailnesia"}
+var providerNames = []string{"mail.tm", "1secmail", "guerrillamail", "dispostable", "dropmail", "mailnesia", "chatgpt"}
 
 // ===================== 多提供商工厂 =====================
 
@@ -45,21 +46,21 @@ type MultiProvider struct {
 
 var globalProvider = &MultiProvider{}
 
-// AllProviders 返回所有可用的提供商类型（目前只有 mail.tm 能通过 Orchids 验证）
+// AllProviders 返回所有可用的提供商类型
 func AllProviders() []ProviderType {
 	return []ProviderType{
-		ProviderMailTM,
+		ProviderChatGPT,
 	}
 }
 
-// NewTempMail 创建临时邮箱服务（只使用 mail.tm）
+// NewTempMail 创建临时邮箱服务（默认使用 ChatGPT Mail）
 func NewTempMail() TempMailService {
-	return NewMailTM()
+	return NewChatGPTMail()
 }
 
-// Next 获取下一个提供商（只使用 mail.tm）
+// Next 获取下一个提供商
 func (mp *MultiProvider) Next() TempMailService {
-	return NewMailTM()
+	return NewChatGPTMail()
 }
 
 // NewTempMailByProvider 根据指定提供商创建
@@ -77,8 +78,127 @@ func NewTempMailByProvider(p ProviderType) TempMailService {
 		return NewDropmail()
 	case ProviderMailnesia:
 		return NewMailnesia()
+	case ProviderChatGPT:
+		return NewChatGPTMail()
 	default:
-		return NewMailTM()
+		return NewChatGPTMail()
+	}
+}
+
+// ===================== ChatGPT Mail 提供商 =====================
+
+type ChatGPTMail struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewChatGPTMail() *ChatGPTMail {
+	return &ChatGPTMail{
+		client:  &http.Client{Timeout: 30 * time.Second},
+		baseURL: "https://mail.chatgpt.org.uk/api",
+	}
+}
+
+func (c *ChatGPTMail) Name() string {
+	return "chatgpt"
+}
+
+func (c *ChatGPTMail) GenerateEmail() (string, error) {
+	req, _ := http.NewRequest("GET", c.baseURL+"/generate-email", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("Origin", "https://mail.chatgpt.org.uk")
+	req.Header.Set("Referer", "https://mail.chatgpt.org.uk/")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("[chatgpt] 获取邮箱失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("[chatgpt] 获取邮箱失败 (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Email string `json:"email"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("[chatgpt] 解析响应失败: %w", err)
+	}
+
+	if !result.Success || result.Data.Email == "" {
+		return "", fmt.Errorf("[chatgpt] 获取邮箱失败: success=%v", result.Success)
+	}
+
+	log.Printf("[chatgpt] 创建成功: %s", result.Data.Email)
+	return result.Data.Email, nil
+}
+
+func (c *ChatGPTMail) WaitForVerificationCode(email string, timeout time.Duration) (string, error) {
+	startTime := time.Now()
+	pollInterval := 3 * time.Second
+	checkCount := 0
+
+	// 匹配 6 位数字验证码 或 XXX-XXX 格式
+	codeRegex := regexp.MustCompile(`\b[A-Z0-9]{3}-[A-Z0-9]{3}\b|\b\d{6}\b`)
+
+	for {
+		if time.Since(startTime) > timeout {
+			return "", fmt.Errorf("[chatgpt] 超时等待验证码邮件")
+		}
+
+		checkCount++
+		log.Printf("[chatgpt 检查 #%d] 正在检查邮箱...", checkCount)
+
+		req, _ := http.NewRequest("GET", c.baseURL+"/emails", nil)
+		q := req.URL.Query()
+		q.Add("email", email)
+		req.URL.RawQuery = q.Encode()
+		req.Header.Set("User-Agent", "Mozilla/5.0")
+		req.Header.Set("Origin", "https://mail.chatgpt.org.uk")
+		req.Header.Set("Referer", "https://mail.chatgpt.org.uk/")
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		var result struct {
+			Success bool `json:"success"`
+			Data    struct {
+				Emails []struct {
+					Subject     string `json:"subject"`
+					HtmlContent string `json:"html_content"`
+				} `json:"emails"`
+			} `json:"data"`
+		}
+
+		if err := json.Unmarshal(body, &result); err == nil && result.Success && result.Data.Emails != nil {
+			for _, msg := range result.Data.Emails {
+				content := msg.Subject + " " + msg.HtmlContent
+				matches := codeRegex.FindStringSubmatch(content)
+				if len(matches) > 0 {
+					code := strings.ReplaceAll(matches[0], "-", "") // 去除连字符
+					log.Printf("[chatgpt] 找到验证码: %s", code)
+					return code, nil
+				}
+			}
+		}
+
+		time.Sleep(pollInterval)
 	}
 }
 
