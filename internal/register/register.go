@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -111,6 +113,12 @@ func (r *RegisterService) browserRegister(email, password string, headless bool)
 		chromedp.Flag("disable-infobars", true),
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
 	)
+
+	// 自动查找浏览器路径 (优先 Edge)
+	if execPath := findBrowserPath(); execPath != "" {
+		opts = append(opts, chromedp.ExecPath(execPath))
+		log.Printf("%s 使用浏览器: %s", logPrefix, execPath)
+	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
@@ -376,6 +384,25 @@ func (r *RegisterService) CompleteRegistration(signUpID, code string) (*Register
 	return nil, fmt.Errorf("手动验证模式暂不支持，请使用自动模式")
 }
 
+// findBrowserPath 查找浏览器可执行文件路径
+func findBrowserPath() string {
+	if runtime.GOOS == "windows" {
+		paths := []string{
+			`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+			`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+			`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+			`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+		}
+		for _, path := range paths {
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
+		}
+	}
+	// 其他操作系统可以使用默认查找逻辑，或者在这里添加
+	return ""
+}
+
 // truncate 截断字符串
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
@@ -524,6 +551,12 @@ func (r *RegisterService) browserRegisterWithMail(tempMail tempmail.TempMailServ
 		chromedp.Flag("disable-infobars", true),
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
 	)
+
+	// 自动查找浏览器路径 (优先 Edge)
+	if execPath := findBrowserPath(); execPath != "" {
+		opts = append(opts, chromedp.ExecPath(execPath))
+		log.Printf("[自动注册] 使用浏览器: %s", execPath)
+	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
