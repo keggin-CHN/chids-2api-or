@@ -104,9 +104,10 @@ func (r *RegisterService) browserRegister(email, password string, headless bool)
 	// 创建浏览器上下文
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", headless),
-		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("remote-allow-origins", "*"), // 解决新版浏览器连接问题
 		chromedp.Flag("window-size", "1280,800"),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.Flag("exclude-switches", "enable-automation"),
@@ -542,9 +543,10 @@ func (r *RegisterService) browserRegisterWithMail(tempMail tempmail.TempMailServ
 	// 创建浏览器上下文
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", headless),
-		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("remote-allow-origins", "*"), // 解决新版浏览器连接问题
 		chromedp.Flag("window-size", "1280,800"),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.Flag("exclude-switches", "enable-automation"),
